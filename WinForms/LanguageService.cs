@@ -56,7 +56,44 @@ public abstract class LanguageService
 
     public static void EnableLanguage(string targetTag)
     {
-        Task.Delay(3000).Wait(); // Simulate a long-running operation
+        using var powerShell = PowerShell.Create();
+        powerShell.AddCommand("Get-WinUserLanguageList");
+        var results = powerShell.Invoke();
+        powerShell.Commands.Clear();
+
+        if (powerShell.HadErrors || results.Count == 0)
+            ThrowScriptError(powerShell);
+
+        var languages = results[0].BaseObject as IEnumerable<object>
+                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
+
+        List<string> currentTags = [];
+        bool exists = false;
+
+        foreach (var language in languages)
+        {
+            var property = language.GetType().GetProperty("LanguageTag");
+            if (property?.GetValue(language) is string tag)
+            {
+                if (tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
+                    exists = true;
+
+                currentTags.Add(tag);
+            }
+        }
+
+        if (exists)
+            return;
+
+        currentTags.Add(targetTag);
+
+        var script = $"Set-WinUserLanguageList -LanguageList '{string.Join("','", currentTags)}' -Force";
+
+        powerShell.AddScript(script);
+        powerShell.Invoke();
+
+        if (powerShell.HadErrors)
+            ThrowScriptError(powerShell);
     }
 
     public static void DisableLanguage(string targetTag)
