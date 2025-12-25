@@ -19,12 +19,12 @@ public partial class SettingsForm : Form
         statusLabel.Text = null;
     }
 
-    private async void SettingsForm_Load(object sender, EventArgs e)
+    private void SettingsForm_Load(object sender, EventArgs e)
     {
-        await LoadInstalledLanguages();
+        LoadInstalledLanguages();
     }
 
-    private async Task LoadInstalledLanguages()
+    private void LoadInstalledLanguages()
     {
         SetWorkingStatus("Loading installed languages...");
         try
