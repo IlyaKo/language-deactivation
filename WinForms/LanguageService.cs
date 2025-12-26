@@ -1,5 +1,5 @@
-﻿using System.Globalization;
-using System.Management.Automation;
+﻿using Microsoft.Win32;
+using System.Globalization;
 
 namespace WinForms;
 
@@ -14,26 +14,61 @@ public abstract class LanguageService
                                       .Select(l => l.Culture.Name)
                                       .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        using var powerShell = PowerShell.Create();
-        powerShell.AddScript("Get-InstalledLanguage");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
+        // Путь к пакетам компонентов Windows
+        // Примечание: Требуются права на чтение HKLM (обычно доступны пользователю)
+        string keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages";
 
-        var systemTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var language in languages)
+        try
         {
-            var idProperty = language.GetType().GetField("LanguageId");
-            if (idProperty?.GetValue(language) is string tag)
-                systemTags.Add(tag);
+            using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+            if (key != null)
+            {
+                foreach (var subKeyName in key.GetSubKeyNames())
+                {
+                    // Ищем пакеты базового ввода: Microsoft-Windows-LanguageFeatures-Basic-[lang]-Package
+                    if (subKeyName.StartsWith("Microsoft-Windows-LanguageFeatures-Basic-", StringComparison.OrdinalIgnoreCase) &&
+                        subKeyName.Contains("-Package"))
+                    {
+                        // Формат имени: Microsoft-Windows-LanguageFeatures-Basic-ru-ru-Package~...
+                        // Нам нужно извлечь "ru-ru"
+                        var parts = subKeyName.Split('-');
+                        // Обычно тег языка находится перед словом "Package". 
+                        // Структура: [Prefix]...[Basic]-[Tag]-Package...
+
+                        // Простой парсинг: ищем часть перед "Package"
+                        int packageIndex = Array.FindIndex(parts, p => p.StartsWith("Package", StringComparison.OrdinalIgnoreCase));
+                        if (packageIndex > 0)
+                        {
+                            // Тег может состоять из двух частей (ru-ru) или одной? 
+                            // В имени ключа он обычно идет как "ru-ru".
+                            // Для надежности попробуем взять 2 части перед Package, если они похожи на тег.
+
+                            // Вариант проще: вырезаем строку между "Basic-" и "-Package"
+                            int start = subKeyName.IndexOf("Basic-", StringComparison.OrdinalIgnoreCase) + 6;
+                            int end = subKeyName.IndexOf("-Package", StringComparison.OrdinalIgnoreCase);
+
+                            if (start > 5 && end > start)
+                            {
+                                string tag = subKeyName.Substring(start, end - start);
+                                tags.Add(tag);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Если нет доступа к реестру или ключа не существует, возвращаем пустой список.
+            // Приложение продолжит работать только с активными языками.
         }
 
-        var allTags = activeTags.Union(systemTags);
+        var allTags = activeTags.Union(tags, StringComparer.OrdinalIgnoreCase);
+
         foreach (var tag in allTags)
+        {
             try
             {
                 var culture = CultureInfo.GetCultureInfo(tag);
@@ -48,52 +83,29 @@ public abstract class LanguageService
             }
             catch
             {
-
+                // Игнорируем некорректные культуры
             }
+        }
 
         return installedLanguages.AsReadOnly();
     }
 
     public static void EnableLanguage(string targetTag)
     {
-        using var powerShell = PowerShell.Create();
-        powerShell.AddCommand("Get-WinUserLanguageList");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
+        var culture = CultureInfo.GetCultureInfo(targetTag);
+        string hexLangId = (culture.LCID & 0xFFFF).ToString("x4");
+        string layoutId = $"0000{hexLangId}";
+        string layoutProfileString = $"{hexLangId}:{layoutId}";
 
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
-
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
-
-        List<string> currentTags = [];
-        bool exists = false;
-
-        foreach (var language in languages)
+        try
         {
-            var property = language.GetType().GetProperty("LanguageTag");
-            if (property?.GetValue(language) is string tag)
-            {
-                if (tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
-                    exists = true;
-
-                currentTags.Add(tag);
-            }
+            WinApi.InstallLayoutOrTip(layoutProfileString, 0);
+            WinApi.LoadKeyboardLayout(layoutId, WinApi.ActivationFlag | WinApi.SubstitutionOnFlag);
         }
-
-        if (exists)
-            return;
-
-        currentTags.Add(targetTag);
-
-        var script = $"Set-WinUserLanguageList -LanguageList '{string.Join("','", currentTags)}' -Force";
-
-        powerShell.AddScript(script);
-        powerShell.Invoke();
-
-        if (powerShell.HadErrors)
-            ThrowScriptError(powerShell);
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to enable language '{targetTag}': {ex.Message}");
+        }
     }
 
     public static void DisableLanguage(string targetTag)
@@ -109,49 +121,31 @@ public abstract class LanguageService
                     break;
                 }
 
-        using var powerShell = PowerShell.Create();
-        powerShell.AddCommand("Get-WinUserLanguageList");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
+        var culture = CultureInfo.GetCultureInfo(targetTag);
+        var targetLcid = culture.LCID;
 
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
+        var count = WinApi.GetKeyboardLayoutList(0, null);
+        var hklList = new IntPtr[count];
+        WinApi.GetKeyboardLayoutList(count, hklList);
 
-        if (languages.Count() <= 1)
+        if (hklList.Length <= 1)
             throw new InvalidOperationException("You should not remove the last active language");
 
-        List<string> keepTags = [];
-        var foundLanguage = false;
-
-        foreach (var language in languages)
+        var found = false;
+        foreach (var hkl in hklList)
         {
-            var property = language.GetType().GetProperty("LanguageTag");
-            if (property?.GetValue(language) is not string tag)
-                continue;
-
-            if (tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
-                foundLanguage = true;
-            else
-                keepTags.Add(tag);
+            var hklLcid = (int)(hkl.ToInt64() & 0xFFFF);
+            if (hklLcid == targetLcid)
+            {
+                WinApi.UnloadKeyboardLayout(hkl);
+                found = true;
+                // Не делаем break, чтобы удалить все раскладки этого языка (если их несколько)
+            }
         }
 
-        if (!foundLanguage)
-            return;
-
-        var script = $"Set-WinUserLanguageList -LanguageList '{string.Join("','", keepTags)}' -Force";
-
-        powerShell.AddScript(script);
-        powerShell.Invoke();
-
-        if (powerShell.HadErrors)
-            ThrowScriptError(powerShell);
-    }
-
-    private static void ThrowScriptError(PowerShell ps)
-    {
-        var error = ps.Streams.Error.FirstOrDefault();
-        throw new Exception($"PowerShell Error: {error?.Exception?.Message ?? "Unknown error"}");
+        if (!found)
+        {
+            // Если язык не найден в активных, ничего страшного — он уже отключен.
+        }
     }
 }
