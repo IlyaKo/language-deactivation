@@ -18,7 +18,7 @@ public abstract class LanguageService
 
         // Путь к пакетам компонентов Windows
         // Примечание: Требуются права на чтение HKLM (обычно доступны пользователю)
-        string keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages";
+        var keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages";
 
         try
         {
@@ -38,7 +38,7 @@ public abstract class LanguageService
                         // Структура: [Prefix]...[Basic]-[Tag]-Package...
 
                         // Простой парсинг: ищем часть перед "Package"
-                        int packageIndex = Array.FindIndex(parts, p => p.StartsWith("Package", StringComparison.OrdinalIgnoreCase));
+                        var packageIndex = Array.FindIndex(parts, p => p.StartsWith("Package", StringComparison.OrdinalIgnoreCase));
                         if (packageIndex > 0)
                         {
                             // Тег может состоять из двух частей (ru-ru) или одной? 
@@ -46,12 +46,12 @@ public abstract class LanguageService
                             // Для надежности попробуем взять 2 части перед Package, если они похожи на тег.
 
                             // Вариант проще: вырезаем строку между "Basic-" и "-Package"
-                            int start = subKeyName.IndexOf("Basic-", StringComparison.OrdinalIgnoreCase) + 6;
-                            int end = subKeyName.IndexOf("-Package", StringComparison.OrdinalIgnoreCase);
+                            var start = subKeyName.IndexOf("Basic-", StringComparison.OrdinalIgnoreCase) + 6;
+                            var end = subKeyName.IndexOf("-Package", StringComparison.OrdinalIgnoreCase);
 
                             if (start > 5 && end > start)
                             {
-                                string tag = subKeyName.Substring(start, end - start);
+                                var tag = subKeyName.Substring(start, end - start);
                                 tags.Add(tag);
                             }
                         }
@@ -93,9 +93,9 @@ public abstract class LanguageService
     public static void EnableLanguage(string targetTag)
     {
         var culture = CultureInfo.GetCultureInfo(targetTag);
-        string hexLangId = (culture.LCID & 0xFFFF).ToString("x4");
-        string layoutId = $"0000{hexLangId}";
-        string layoutProfileString = $"{hexLangId}:{layoutId}";
+        var hexLangId = (culture.LCID & 0xFFFF).ToString("x4");
+        var layoutId = $"0000{hexLangId}";
+        var layoutProfileString = $"{hexLangId}:{layoutId}";
 
         try
         {
@@ -122,30 +122,19 @@ public abstract class LanguageService
                 }
 
         var culture = CultureInfo.GetCultureInfo(targetTag);
-        var targetLcid = culture.LCID;
+        var hexLangId = (culture.LCID & 0xFFFF).ToString("x4");
+        var layoutId = $"0000{hexLangId}";
+        var layoutProfileString = $"{hexLangId}:{layoutId}";
 
-        var count = WinApi.GetKeyboardLayoutList(0, null);
-        var hklList = new IntPtr[count];
-        WinApi.GetKeyboardLayoutList(count, hklList);
-
-        if (hklList.Length <= 1)
-            throw new InvalidOperationException("You should not remove the last active language");
-
-        var found = false;
-        foreach (var hkl in hklList)
+        try
         {
-            var hklLcid = (int)(hkl.ToInt64() & 0xFFFF);
-            if (hklLcid == targetLcid)
-            {
-                WinApi.UnloadKeyboardLayout(hkl);
-                found = true;
-                // Не делаем break, чтобы удалить все раскладки этого языка (если их несколько)
-            }
+            var result = WinApi.InstallLayoutOrTip(layoutProfileString, WinApi.DeactivationFlag);
+
+            WinApi.PostMessage(WinApi.BroadcastFlag, WinApi.SettingChangeFlag, IntPtr.Zero, "intl");
         }
-
-        if (!found)
+        catch (Exception ex)
         {
-            // Если язык не найден в активных, ничего страшного — он уже отключен.
+            throw new InvalidOperationException($"Failed to disable language '{targetTag}': {ex.Message}");
         }
     }
 }
