@@ -1,5 +1,5 @@
-﻿using System.Globalization;
-using System.Management.Automation;
+﻿using Microsoft.Win32;
+using System.Globalization;
 
 namespace WinForms;
 
@@ -14,26 +14,46 @@ public abstract class LanguageService
                                       .Select(l => l.Culture.Name)
                                       .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        using var powerShell = PowerShell.Create();
-        powerShell.AddScript("Get-InstalledLanguage");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
+        var keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages";
 
-        var systemTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var language in languages)
+        try
         {
-            var idProperty = language.GetType().GetField("LanguageId");
-            if (idProperty?.GetValue(language) is string tag)
-                systemTags.Add(tag);
+            using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+            if (key != null)
+            {
+                foreach (var subKeyName in key.GetSubKeyNames())
+                {
+                    // Microsoft - Windows - LanguageFeatures - Basic - [lang] - Package
+                    if (subKeyName.StartsWith("Microsoft-Windows-LanguageFeatures-Basic-", StringComparison.OrdinalIgnoreCase) &&
+                        subKeyName.Contains("-Package"))
+                    {
+                        var parts = subKeyName.Split('-');
+
+                        // [Prefix]...[Basic]-[Tag]-Package...
+                        var packageIndex = Array.FindIndex(parts, p => p.StartsWith("Package", StringComparison.OrdinalIgnoreCase));
+                        if (packageIndex > 0)
+                        {
+                            var start = subKeyName.IndexOf("Basic-", StringComparison.OrdinalIgnoreCase) + 6;
+                            var end = subKeyName.IndexOf("-Package", StringComparison.OrdinalIgnoreCase);
+                            if (start > 5 && end > start)
+                            {
+                                var tag = subKeyName[start..end];
+                                tags.Add(tag);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // No action on registry read failure
         }
 
-        var allTags = activeTags.Union(systemTags);
-        foreach (var tag in allTags)
+        foreach (var tag in activeTags.Union(tags, StringComparer.OrdinalIgnoreCase))
+        {
             try
             {
                 var culture = CultureInfo.GetCultureInfo(tag);
@@ -48,52 +68,26 @@ public abstract class LanguageService
             }
             catch
             {
-
+                // Ignore invalid culture tags
             }
+        }
 
         return installedLanguages.AsReadOnly();
     }
 
     public static void EnableLanguage(string targetTag)
     {
-        using var powerShell = PowerShell.Create();
-        powerShell.AddCommand("Get-WinUserLanguageList");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
+        var activeTags = InputLanguage.InstalledInputLanguages
+                                      .Cast<InputLanguage>()
+                                      .Select(l => l.Culture.Name)
+                                      .ToList();
 
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
-
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
-
-        List<string> currentTags = [];
-        bool exists = false;
-
-        foreach (var language in languages)
-        {
-            var property = language.GetType().GetProperty("LanguageTag");
-            if (property?.GetValue(language) is string tag)
-            {
-                if (tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
-                    exists = true;
-
-                currentTags.Add(tag);
-            }
-        }
-
-        if (exists)
+        if (activeTags.Contains(targetTag, StringComparer.OrdinalIgnoreCase))
             return;
 
-        currentTags.Add(targetTag);
+        activeTags.Add(targetTag);
 
-        var script = $"Set-WinUserLanguageList -LanguageList '{string.Join("','", currentTags)}' -Force";
-
-        powerShell.AddScript(script);
-        powerShell.Invoke();
-
-        if (powerShell.HadErrors)
-            ThrowScriptError(powerShell);
+        SetWinUserLanguageList(activeTags);
     }
 
     public static void DisableLanguage(string targetTag)
@@ -109,49 +103,23 @@ public abstract class LanguageService
                     break;
                 }
 
-        using var powerShell = PowerShell.Create();
-        powerShell.AddCommand("Get-WinUserLanguageList");
-        var results = powerShell.Invoke();
-        powerShell.Commands.Clear();
-        if (powerShell.HadErrors || results.Count == 0)
-            ThrowScriptError(powerShell);
+        var activeTags = InputLanguage.InstalledInputLanguages
+                                      .Cast<InputLanguage>()
+                                      .Select(l => l.Culture.Name)
+                                      .Where(tag => !tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
+                                      .ToList();
 
-        var languages = results[0].BaseObject as IEnumerable<object>
-                      ?? throw new InvalidOperationException("Failed to retrieve user language list.");
-
-        if (languages.Count() <= 1)
-            throw new InvalidOperationException("You should not remove the last active language");
-
-        List<string> keepTags = [];
-        var foundLanguage = false;
-
-        foreach (var language in languages)
-        {
-            var property = language.GetType().GetProperty("LanguageTag");
-            if (property?.GetValue(language) is not string tag)
-                continue;
-
-            if (tag.Equals(targetTag, StringComparison.OrdinalIgnoreCase))
-                foundLanguage = true;
-            else
-                keepTags.Add(tag);
-        }
-
-        if (!foundLanguage)
-            return;
-
-        var script = $"Set-WinUserLanguageList -LanguageList '{string.Join("','", keepTags)}' -Force";
-
-        powerShell.AddScript(script);
-        powerShell.Invoke();
-
-        if (powerShell.HadErrors)
-            ThrowScriptError(powerShell);
+        SetWinUserLanguageList(activeTags);
     }
 
-    private static void ThrowScriptError(PowerShell ps)
+    private static void SetWinUserLanguageList(List<string> tags)
     {
-        var error = ps.Streams.Error.FirstOrDefault();
-        throw new Exception($"PowerShell Error: {error?.Exception?.Message ?? "Unknown error"}");
+        if (tags.Count == 0)
+            return;
+
+        var tagListString = string.Join(",", tags.Select(t => $"'{t}'"));
+        var script = $"Set-WinUserLanguageList -LanguageList {tagListString} -Force";
+
+        PowerShellService.RunScript(script);
     }
 }
