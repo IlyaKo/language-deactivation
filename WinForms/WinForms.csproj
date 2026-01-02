@@ -13,6 +13,7 @@
     <Authors>Kochetkov Ilya</Authors>
     <Product>Language Deactivation</Product>
     <RepositoryUrl>https://github.com/IlyaKo/language-deactivation</RepositoryUrl>
+    <AssemblyName>Language deactivation</AssemblyName>
   </PropertyGroup>
 
 </Project>

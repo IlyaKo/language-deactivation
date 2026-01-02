@@ -35,8 +35,8 @@ partial class LanguageControl
         // 
         // enabledCheckBox
         // 
+        enabledCheckBox.AutoCheck = false;
         enabledCheckBox.AutoSize = true;
-        enabledCheckBox.Enabled = false;
         enabledCheckBox.Location = new Point(8, 12);
         enabledCheckBox.Name = "enabledCheckBox";
         enabledCheckBox.Size = new Size(18, 17);
