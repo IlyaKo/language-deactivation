@@ -5,6 +5,16 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1</AssemblyVersion>
+    <FileVersion>1.0.1</FileVersion>
+    <PackageProjectUrl>https://github.com/IlyaKo/language-deactivation</PackageProjectUrl>
+    <Company>Ilya Kochetkov</Company>
+    <Authors>Ilya Kochetkov</Authors>
+    <AssemblyName>LanguageDeactivation</AssemblyName>
+    <AssemblyTitle>Language deactivation</AssemblyTitle>
+    <Product>Language Deactivation</Product>
+    <Copyright>Copyright © 2026</Copyright>
   </PropertyGroup>
 
   <ItemGroup>

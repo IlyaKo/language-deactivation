@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
 
 namespace Core;
 
@@ -39,20 +38,6 @@ public static class PowerShellService
                 throw new Exception($"PowerShell Error: {error}");
 
         return output;
-    }
-
-    public static List<T> ParseJsonAsArray<T>(string json, JsonSerializerOptions options)
-    {
-        var trimmed = json.TrimStart();
-        if (trimmed.StartsWith("["))
-        {
-            return JsonSerializer.Deserialize<List<T>>(json, options) ?? [];
-        }
-        else
-        {
-            var single = JsonSerializer.Deserialize<T>(json, options);
-            return single != null ? [single] : [];
-        }
     }
 }
 
