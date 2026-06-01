@@ -1,24 +1,26 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Core;
 
 namespace AvaloniaUI.ViewModels;
 
-public partial class LanguageItemViewModel : ObservableObject
+public partial class LanguageItemViewModel(LanguageDto language) : ObservableObject
 {
-    private readonly LanguageDto _language;
+    private readonly LanguageDto _language = language;
 
     [ObservableProperty]
-    public partial bool Enabled { get; set; }
+    public partial bool Enabled { get; set; } = language.Enabled;
 
     public string Name => _language.Name;
     public string Tag => _language.Tag;
     public string ShortCode => _language.ShortCode.ToUpper();
     public bool IsUserInterface => _language.UserInterface;
 
-    public LanguageItemViewModel(LanguageDto language)
+    [RelayCommand]
+    private void Toggle()
     {
-        _language = language;
-        Enabled = language.Enabled;
+        if (!IsUserInterface)
+            Enabled = !Enabled;
     }
 
     partial void OnEnabledChanged(bool value)
