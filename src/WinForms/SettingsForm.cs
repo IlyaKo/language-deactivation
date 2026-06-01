@@ -1,4 +1,6 @@
-﻿namespace WinForms;
+﻿using Core;
+
+namespace WinForms;
 
 public partial class SettingsForm : Form
 {
@@ -53,7 +55,7 @@ public partial class SettingsForm : Form
 
     private void UpdateLastEnabledState()
     {
-        var languages = new List<Language>();
+        var languages = new List<LanguageDto>();
         foreach (var item in itemsPanel.Controls)
             if (item is LanguageControl control && control.Language is not null)
                 languages.Add(control.Language);
@@ -67,7 +69,7 @@ public partial class SettingsForm : Form
             }
     }
 
-    private void ItemStatusChanged(Language language)
+    private void ItemStatusChanged(LanguageDto language)
     {
         var action = language.Enabled ? "Activating" : "Deactivating";
         var status = $"{action} \"{language.Name}\" language";

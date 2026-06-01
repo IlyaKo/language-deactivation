@@ -1,10 +1,12 @@
-﻿namespace WinForms;
+﻿using Core;
+
+namespace WinForms;
 
 public partial class LanguageControl : UserControl
 {
-    public event Action<Language>? StatusChanged;
+    public event Action<LanguageDto>? StatusChanged;
 
-    public Language? Language { private set; get; }
+    public LanguageDto? Language { private set; get; }
 
     private bool _isLastEnabled;
 
@@ -13,7 +15,7 @@ public partial class LanguageControl : UserControl
         InitializeComponent();
     }
 
-    public LanguageControl(Language language) : this()
+    public LanguageControl(LanguageDto language) : this()
     {
         Language = language;
 

@@ -2,7 +2,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace WinForms;
+namespace Core;
 
 public static class PowerShellService
 {
