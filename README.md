@@ -17,6 +17,7 @@ It allows "soft deactivation" — the language pack remains on the system, but t
 
 The application acts as a wrapper around the Windows PowerShell command `Set-WinUserLanguageList`
 
-**Operating System:** Windows 10/11 (x64)
-**Framework:** dotnet 10
-**UI:** Avalonia
+- **Operating System:** Windows 10/11 (x64)
+- **Framework:** dotnet 10
+
+- **UI:** Avalonia
